@@ -106,7 +106,7 @@ ggml_default_cache(GGML_BLAS BOOL ${GGML_ENABLE_BLAS} "Enable the BLAS backend")
 ggml_default_cache(GGML_BLAS_VENDOR STRING ${GGML_ENABLE_BLAS_VENDOR} "BLAS vendor")
 ggml_default_cache(GGML_BUILD_TESTS BOOL OFF "Disable upstream ggml tests in packaging builds")
 ggml_default_cache(GGML_BUILD_EXAMPLES BOOL OFF "Disable upstream ggml examples in packaging builds")
-ggml_default_cache(GGML_CCACHE BOOL OFF "Skip ccache probing in clean CI environments")
+ggml_default_cache(GGML_CCACHE BOOL ON "Skip ccache probing in clean CI environments")
 
 add_compile_definitions(GGML_MAX_NAME=128)
 
