@@ -70,10 +70,15 @@ jobs:
 
       - name: Configure CMake
         run: |
+          hip_clang="$(hipconfig -l)/clang"
+          if [ ! -x "$hip_clang" ]; then
+            hip_clang="/opt/rocm/bin/clang++"
+          fi
+          echo "Using HIP compiler: $hip_clang"
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/install" \
-            -DCMAKE_HIP_COMPILER=/opt/rocm/bin/hipcc \
+            -DCMAKE_HIP_COMPILER="$hip_clang" \
             -DGGML_BUILD_ALL_PLATFORM_BACKENDS=ON \
             -DGGML_ENABLE_VULKAN=ON \
             -DGGML_ENABLE_HIP=ON
@@ -211,11 +216,12 @@ jobs:
           }
 
       - name: Install Vulkan SDK
-        uses: humbletim/setup-vulkan-sdk@v1.2.0
-        with:
-          vulkan-query-version: ${{ env.WINDOWS_VULKAN_VERSION }}
-          vulkan-components: Vulkan-Headers, Vulkan-Loader, Glslang
-          vulkan-use-cache: false
+        shell: pwsh
+        run: |
+          curl.exe -o "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" -L "https://sdk.lunarg.com/sdk/download/$env:WINDOWS_VULKAN_VERSION/windows/vulkansdk-windows-X64-$env:WINDOWS_VULKAN_VERSION.exe"
+          & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\$env:WINDOWS_VULKAN_VERSION"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\$env:WINDOWS_VULKAN_VERSION\Bin"
 
       - name: Add msbuild to PATH
         uses: microsoft/setup-msbuild@v2
@@ -391,9 +397,26 @@ jobs:
       - name: Grab rocWMMA package
         shell: pwsh
         run: |
-          curl -o rocwmma.deb "https://repo.radeon.com/rocm/apt/7.2/pool/main/r/rocwmma-dev/rocwmma-dev_2.2.0.70200-43~24.04_amd64.deb"
+          curl -L -o rocwmma.deb "https://repo.radeon.com/rocm/apt/7.2/pool/main/r/rocwmma-dev/rocwmma-dev_2.2.0.70200-43~24.04_amd64.deb"
           7z x rocwmma.deb
-          7z x data.tar
+
+          $payload = Get-ChildItem -Path . -Filter "data.tar*" | Select-Object -First 1
+          if (-not $payload) {
+            Write-Error "rocWMMA package payload data.tar* not found"
+            exit 1
+          }
+          7z x $payload.FullName
+
+          $rocwmmaHeader = Get-ChildItem -Path . -Recurse -Filter "rocwmma-version.hpp" | Select-Object -First 1
+          if (-not $rocwmmaHeader) {
+            Write-Error "rocwmma-version.hpp not found after extracting rocWMMA package"
+            exit 1
+          }
+
+          $rocwmmaInclude = Split-Path (Split-Path $rocwmmaHeader.FullName)
+          $rocwmmaIncludeUnix = $rocwmmaInclude.Replace('\\', '/')
+          Write-Host "ROCWMMA include dir: $rocwmmaIncludeUnix"
+          Add-Content $env:GITHUB_ENV "ROCWMMA_INCLUDE=$rocwmmaIncludeUnix"
 
       - name: Cache ROCm installation
         id: cache-rocm
@@ -446,6 +469,11 @@ jobs:
         run: |
           $env:HIP_PATH = (Resolve-Path 'C:\Program Files\AMD\ROCm\*\bin\clang.exe' | Split-Path | Split-Path)
           $env:CMAKE_PREFIX_PATH = "$env:HIP_PATH"
+          if (-not $env:ROCWMMA_INCLUDE) {
+            Write-Error "ROCWMMA_INCLUDE is not set"
+            exit 1
+          }
+          $hipFlags = "-I$env:ROCWMMA_INCLUDE -Wno-ignored-attributes -Wno-nested-anon-types"
           cmake -G "Unix Makefiles" -B build/hip -S . `
             -DCMAKE_BUILD_TYPE=Release `
             -DGGML_BUILD_ALL_PLATFORM_BACKENDS=OFF `
@@ -460,7 +488,8 @@ jobs:
             -DGGML_HIP_ROCWMMA_FATTN=ON `
             -DCMAKE_C_COMPILER="$env:HIP_PATH\bin\clang.exe" `
             -DCMAKE_CXX_COMPILER="$env:HIP_PATH\bin\clang++.exe" `
-            -DCMAKE_CXX_FLAGS="-I$($PWD.Path.Replace('\\', '/'))/opt/rocm-7.2.0/include/ -Wno-ignored-attributes -Wno-nested-anon-types"
+            -DCMAKE_CXX_FLAGS="$hipFlags" `
+            -DCMAKE_HIP_FLAGS="$hipFlags"
           cmake --build build/hip --target ggml-hip -j $env:NUMBER_OF_PROCESSORS
 
           New-Item -ItemType Directory -Force -Path "build/hip/bin/rocblas/library" | Out-Null
