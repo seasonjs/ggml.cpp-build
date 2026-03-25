@@ -137,6 +137,7 @@ jobs:
             -DGGML_BACKEND_DL=ON \
             -DGGML_NATIVE=OFF \
             -DGGML_CPU=OFF \
+            -DGGML_CPU_ALL_VARIANTS=OFF \
             -DGGML_VULKAN=OFF \
             -DGGML_HIP=ON \
             -DHIP_PLATFORM=amd \
@@ -453,6 +454,7 @@ jobs:
             -DGGML_BACKEND_DL=ON ^
             -DGGML_NATIVE=OFF ^
             -DGGML_CPU=OFF ^
+            -DGGML_CPU_ALL_VARIANTS=OFF ^
             -DGGML_VULKAN=OFF ^
             -DGGML_HIP=OFF ^
             -DGGML_CUDA=ON ^
@@ -563,6 +565,7 @@ jobs:
             -DGGML_BACKEND_DL=ON `
             -DGGML_NATIVE=OFF `
             -DGGML_CPU=OFF `
+            -DGGML_CPU_ALL_VARIANTS=OFF `
             -DGGML_VULKAN=OFF `
             -DGGML_CUDA=OFF `
             -DGGML_HIP=ON `
