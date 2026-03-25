@@ -57,7 +57,6 @@ jobs:
             -DGGML_NATIVE=OFF \
             -DGGML_CPU=ON \
             -DGGML_CPU_ALL_VARIANTS=ON \
-            -DGGML_BUILD_ALL_PLATFORM_BACKENDS=OFF \
             -DGGML_VULKAN=ON \
             -DGGML_HIP=OFF
 
@@ -138,7 +137,6 @@ jobs:
             -DGGML_BACKEND_DL=ON \
             -DGGML_NATIVE=OFF \
             -DGGML_CPU=OFF \
-            -DGGML_BUILD_ALL_PLATFORM_BACKENDS=OFF \
             -DGGML_VULKAN=OFF \
             -DGGML_HIP=ON \
             -DHIP_PLATFORM=amd \
@@ -194,55 +192,9 @@ jobs:
           stage="artifact/ggml-linux-x86_64"
           mkdir -p "$stage"
 
-          cp -a parts/base/linux-base/. "$stage/"
-          cp -a parts/rocm/linux-rocm/lib/. "$stage/lib/" 2>/dev/null || true
-          cp -a parts/rocm/linux-rocm/bin/. "$stage/bin/" 2>/dev/null || true
-
-          export STAGE_DIR="$stage"
-          python3 <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          stage = Path(os.environ["STAGE_DIR"])
-
-          def rel_list(patterns):
-              items = []
-              for pattern in patterns:
-                  items.extend(stage.glob(pattern))
-              seen = set()
-              result = []
-              for item in sorted(items):
-                  rel = item.relative_to(stage).as_posix()
-                  if item.is_file() and rel not in seen:
-                      seen.add(rel)
-                      result.append(rel)
-              return result
-
-          manifest = {
-              "package": "ggml-linux-x86_64",
-              "core_files": rel_list(["lib/libggml.so*", "lib/libggml-base.so*"]),
-              "backends": [
-                  {
-                      "name": "cpu",
-                      "files": rel_list(["lib/libggml-cpu*.so*"]),
-                      "runtime": "bundled",
-                  },
-                  {
-                      "name": "vulkan",
-                      "files": rel_list(["lib/libggml-vulkan.so*"]),
-                      "runtime": "requires system Vulkan loader and GPU driver",
-                  },
-                  {
-                      "name": "hip",
-                      "files": rel_list(["lib/libggml-hip.so*"]),
-                      "runtime": "requires ROCm runtime and compatible AMD driver on target system",
-                  },
-              ],
-          }
-
-          (stage / "backend-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-          PY
+          cp -a parts/base/. "$stage/"
+          cp -a parts/rocm/lib/. "$stage/lib/" 2>/dev/null || true
+          cp -a parts/rocm/bin/. "$stage/bin/" 2>/dev/null || true
 
           tar czf artifact/ggml-linux-x86_64.tar.gz -C artifact ggml-linux-x86_64
 
@@ -314,7 +266,6 @@ jobs:
             -DGGML_NATIVE=OFF \
             -DGGML_CPU=ON \
             -DGGML_CPU_ALL_VARIANTS=OFF \
-            -DGGML_BUILD_ALL_PLATFORM_BACKENDS=OFF \
             -DGGML_METAL=ON \
             -DGGML_METAL_EMBED_LIBRARY=ON \
             -DGGML_ACCELERATE=ON \
@@ -392,7 +343,6 @@ jobs:
           cmake -S . -B build/base -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_INSTALL_PREFIX="${env:GITHUB_WORKSPACE}\install\base" `
-            -DGGML_BUILD_ALL_PLATFORM_BACKENDS=OFF `
             -DBUILD_SHARED_LIBS=ON `
             -DGGML_BACKEND_DL=ON `
             -DGGML_NATIVE=OFF `
@@ -499,7 +449,6 @@ jobs:
             exit /b 1
           )
           cmake -S . -B build\cuda -G "Ninja Multi-Config" ^
-            -DGGML_BUILD_ALL_PLATFORM_BACKENDS=OFF ^
             -DBUILD_SHARED_LIBS=ON ^
             -DGGML_BACKEND_DL=ON ^
             -DGGML_NATIVE=OFF ^
@@ -610,7 +559,6 @@ jobs:
           }
           cmake -G "Unix Makefiles" -B build/hip -S . `
             -DCMAKE_BUILD_TYPE=Release `
-            -DGGML_BUILD_ALL_PLATFORM_BACKENDS=OFF `
             -DBUILD_SHARED_LIBS=ON `
             -DGGML_BACKEND_DL=ON `
             -DGGML_NATIVE=OFF `
@@ -682,68 +630,10 @@ jobs:
           $stage = "artifact/ggml-windows-x86_64"
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
-          Copy-Item -Path "parts/base/windows-base/*" -Destination $stage -Recurse -Force
-          Copy-Item -Path "parts/cuda/windows-cuda/bin/*" -Destination "$stage/bin/" -Force -ErrorAction SilentlyContinue
-          Copy-Item -Path "parts/hip/windows-hip/bin/*" -Destination "$stage/bin/" -Recurse -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path "parts/base/*" -Destination $stage -Recurse -Force
+          Copy-Item -Path "parts/cuda/bin/*" -Destination "$stage/bin/" -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path "parts/hip/bin/*" -Destination "$stage/bin/" -Recurse -Force -ErrorAction SilentlyContinue
 
-          $manifest = @{
-            package = "ggml-windows-x86_64"
-            generated_at = (Get-Date).ToUniversalTime().ToString("o")
-            core_files = @(
-              Get-ChildItem "$stage/bin/ggml.dll", "$stage/bin/ggml-base.dll" -ErrorAction SilentlyContinue |
-                Sort-Object Name |
-                ForEach-Object { "bin/$($_.Name)" }
-            )
-            import_libraries = @(
-              Get-ChildItem "$stage/lib/*.lib" -ErrorAction SilentlyContinue |
-                Sort-Object Name |
-                ForEach-Object { "lib/$($_.Name)" }
-            )
-            backends = @(
-              @{
-                name = "cpu"
-                files = @(
-                  Get-ChildItem "$stage/bin/ggml-cpu-*.dll" -ErrorAction SilentlyContinue |
-                    Sort-Object Name |
-                    ForEach-Object { "bin/$($_.Name)" }
-                )
-                runtime = "bundled"
-              },
-              @{
-                name = "vulkan"
-                files = @(
-                  Get-ChildItem "$stage/bin/ggml-vulkan.dll" -ErrorAction SilentlyContinue |
-                    Sort-Object Name |
-                    ForEach-Object { "bin/$($_.Name)" }
-                )
-                runtime = "requires system Vulkan loader and GPU driver"
-              },
-              @{
-                name = "cuda"
-                files = @(
-                  Get-ChildItem "$stage/bin/ggml-cuda.dll", "$stage/bin/cudart64_*.dll", "$stage/bin/cublas64_*.dll", "$stage/bin/cublasLt64_*.dll" -ErrorAction SilentlyContinue |
-                    Sort-Object Name |
-                    ForEach-Object { "bin/$($_.Name)" }
-                )
-                runtime = "bundled CUDA user-mode libraries; NVIDIA driver still required"
-              },
-              @{
-                name = "hip"
-                files = @(
-                  Get-ChildItem "$stage/bin/ggml-hip.dll", "$stage/bin/amd_comgr*.dll", "$stage/bin/amdhip64*.dll", "$stage/bin/hipblas.dll", "$stage/bin/libhipblas*.dll", "$stage/bin/rocblas.dll" -ErrorAction SilentlyContinue |
-                    Sort-Object Name |
-                    ForEach-Object { "bin/$($_.Name)" }
-                )
-                runtime = "bundled ROCm user-mode libraries; compatible AMD driver still required"
-                extra_paths = @(
-                  "bin/rocblas/library",
-                  "bin/hipblaslt/library"
-                )
-              }
-            )
-          }
-
-          $manifest | ConvertTo-Json -Depth 6 | Set-Content -Path "$stage/backend-manifest.json" -Encoding utf8
           Compress-Archive -Path $stage -DestinationPath "artifact/ggml-windows-x86_64.zip" -Force
 
       - name: Upload artifact
