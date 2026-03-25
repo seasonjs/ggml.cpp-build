@@ -20,6 +20,39 @@ jobs:
     container:
       image: rocm/dev-ubuntu-22.04:6.1
     steps:
+      - name: Validate Linux x86_64 builder
+        run: |
+          arch="$(uname -m)"
+          bits="$(getconf LONG_BIT)"
+          cc_target="$(cc -dumpmachine)"
+          cxx_target="$(c++ -dumpmachine)"
+          echo "uname -m: $arch"
+          echo "LONG_BIT: $bits"
+          echo "cc -dumpmachine: $cc_target"
+          echo "c++ -dumpmachine: $cxx_target"
+          if [ "$arch" != "x86_64" ]; then
+            echo "Expected x86_64 builder, got $arch" >&2
+            exit 1
+          fi
+          if [ "$bits" != "64" ]; then
+            echo "Expected 64-bit builder, got $bits-bit" >&2
+            exit 1
+          fi
+          case "$cc_target" in
+            x86_64-*|amd64-*) ;;
+            *)
+              echo "Expected x86_64 C compiler target, got $cc_target" >&2
+              exit 1
+              ;;
+          esac
+          case "$cxx_target" in
+            x86_64-*|amd64-*) ;;
+            *)
+              echo "Expected x86_64 C++ compiler target, got $cxx_target" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Install dependencies
         run: |
           apt-get update
@@ -75,6 +108,39 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate macOS arm64 builder
+        run: |
+          arch="$(uname -m)"
+          bits="$(getconf LONG_BIT)"
+          cc_target="$(cc -dumpmachine)"
+          cxx_target="$(c++ -dumpmachine)"
+          echo "uname -m: $arch"
+          echo "LONG_BIT: $bits"
+          echo "cc -dumpmachine: $cc_target"
+          echo "c++ -dumpmachine: $cxx_target"
+          if [ "$arch" != "arm64" ]; then
+            echo "Expected arm64 builder, got $arch" >&2
+            exit 1
+          fi
+          if [ "$bits" != "64" ]; then
+            echo "Expected 64-bit builder, got $bits-bit" >&2
+            exit 1
+          fi
+          case "$cc_target" in
+            arm64-*|aarch64-*) ;;
+            *)
+              echo "Expected arm64 C compiler target, got $cc_target" >&2
+              exit 1
+              ;;
+          esac
+          case "$cxx_target" in
+            arm64-*|aarch64-*) ;;
+            *)
+              echo "Expected arm64 C++ compiler target, got $cxx_target" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Install dependencies
         run: brew install cmake ninja
 
@@ -83,8 +149,20 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
+            -DCMAKE_INSTALL_RPATH="@loader_path" \
             -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/install" \
-            -DGGML_BUILD_ALL_PLATFORM_BACKENDS=ON
+            -DBUILD_SHARED_LIBS=ON \
+            -DGGML_BACKEND_DL=ON \
+            -DGGML_NATIVE=OFF \
+            -DGGML_CPU=ON \
+            -DGGML_CPU_ALL_VARIANTS=ON \
+            -DGGML_BUILD_ALL_PLATFORM_BACKENDS=OFF \
+            -DGGML_METAL=ON \
+            -DGGML_METAL_EMBED_LIBRARY=ON \
+            -DGGML_ACCELERATE=ON \
+            -DGGML_BLAS=ON \
+            -DGGML_BLAS_VENDOR=Apple
 
       - name: Build
         run: cmake --build build --config Release -j "$(sysctl -n hw.ncpu)"
@@ -116,6 +194,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate Windows x86_64 runner
+        shell: pwsh
+        run: |
+          Write-Host "PROCESSOR_ARCHITECTURE=$env:PROCESSOR_ARCHITECTURE"
+          Write-Host "Is64BitOS=$([Environment]::Is64BitOperatingSystem)"
+          Write-Host "Is64BitProcess=$([Environment]::Is64BitProcess)"
+          if (-not [Environment]::Is64BitOperatingSystem) {
+            Write-Error "Expected 64-bit Windows runner"
+            exit 1
+          }
+          if ($env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
+            Write-Error "Expected AMD64 runner, got $env:PROCESSOR_ARCHITECTURE"
+            exit 1
+          }
 
       - name: Install Vulkan SDK
         uses: humbletim/setup-vulkan-sdk@v1.2.0
@@ -186,6 +279,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate Windows x86_64 runner
+        shell: pwsh
+        run: |
+          Write-Host "PROCESSOR_ARCHITECTURE=$env:PROCESSOR_ARCHITECTURE"
+          Write-Host "Is64BitOS=$([Environment]::Is64BitOperatingSystem)"
+          Write-Host "Is64BitProcess=$([Environment]::Is64BitProcess)"
+          if (-not [Environment]::Is64BitOperatingSystem) {
+            Write-Error "Expected 64-bit Windows runner"
+            exit 1
+          }
+          if ($env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
+            Write-Error "Expected AMD64 runner, got $env:PROCESSOR_ARCHITECTURE"
+            exit 1
+          }
+
       - name: Install CUDA Toolkit 12.4
         shell: pwsh
         run: |
@@ -205,6 +313,11 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          echo VSCMD_ARG_TGT_ARCH=%VSCMD_ARG_TGT_ARCH%
+          if /I not "%VSCMD_ARG_TGT_ARCH%"=="x64" (
+            echo Expected x64 MSVC toolchain, got %VSCMD_ARG_TGT_ARCH%
+            exit /b 1
+          )
           cmake -S . -B build\cuda -G "Ninja Multi-Config" ^
             -DGGML_BUILD_ALL_PLATFORM_BACKENDS=OFF ^
             -DBUILD_SHARED_LIBS=ON ^
@@ -254,6 +367,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate Windows x86_64 runner
+        shell: pwsh
+        run: |
+          Write-Host "PROCESSOR_ARCHITECTURE=$env:PROCESSOR_ARCHITECTURE"
+          Write-Host "Is64BitOS=$([Environment]::Is64BitOperatingSystem)"
+          Write-Host "Is64BitProcess=$([Environment]::Is64BitProcess)"
+          if (-not [Environment]::Is64BitOperatingSystem) {
+            Write-Error "Expected 64-bit Windows runner"
+            exit 1
+          }
+          if ($env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
+            Write-Error "Expected AMD64 runner, got $env:PROCESSOR_ARCHITECTURE"
+            exit 1
+          }
+
       - name: Grab rocWMMA package
         shell: pwsh
         run: |
@@ -300,6 +428,12 @@ jobs:
             exit 1
           }
           & $clangPath.FullName --version
+          $target = & $clangPath.FullName -dumpmachine
+          Write-Host "HIP clang target: $target"
+          if ($target -notmatch 'x86_64|amd64') {
+            Write-Error "Expected x86_64 HIP clang target, got $target"
+            exit 1
+          }
 
       - name: Build ggml-hip
         shell: pwsh
