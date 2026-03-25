@@ -360,9 +360,6 @@ jobs:
 
   build-windows-x86_64-hip:
     runs-on: windows-2022
-    env:
-      HIPSDK_INSTALLER_VERSION: ${{ env.WINDOWS_HIPSDK_INSTALLER_VERSION }}
-      GPU_TARGETS: ${{ env.WINDOWS_HIP_GPU_TARGETS }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -394,7 +391,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\Program Files\AMD\ROCm
-          key: rocm-${{ env.HIPSDK_INSTALLER_VERSION }}-${{ runner.os }}
+          key: rocm-${{ env.WINDOWS_HIPSDK_INSTALLER_VERSION }}-${{ runner.os }}
 
       - name: Install AMD HIP SDK
         if: steps.cache-rocm.outputs.cache-hit != 'true'
@@ -403,7 +400,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           Write-Host "Downloading AMD HIP SDK Installer"
           Invoke-WebRequest `
-            -Uri "https://download.amd.com/developer/eula/rocm-hub/AMD-Software-PRO-Edition-$($env:HIPSDK_INSTALLER_VERSION)-Win11-For-HIP.exe" `
+            -Uri "https://download.amd.com/developer/eula/rocm-hub/AMD-Software-PRO-Edition-$($env:WINDOWS_HIPSDK_INSTALLER_VERSION)-Win11-For-HIP.exe" `
             -OutFile "${env:RUNNER_TEMP}\rocm-install.exe"
           Write-Host "Installing AMD HIP SDK"
           $proc = Start-Process "${env:RUNNER_TEMP}\rocm-install.exe" -ArgumentList '-install' -NoNewWindow -PassThru
@@ -451,7 +448,7 @@ jobs:
             -DGGML_VULKAN=OFF `
             -DGGML_CUDA=OFF `
             -DGGML_HIP=ON `
-            -DGPU_TARGETS="$env:GPU_TARGETS" `
+            -DGPU_TARGETS="$env:WINDOWS_HIP_GPU_TARGETS" `
             -DGGML_HIP_ROCWMMA_FATTN=ON `
             -DCMAKE_C_COMPILER="$env:HIP_PATH\bin\clang.exe" `
             -DCMAKE_CXX_COMPILER="$env:HIP_PATH\bin\clang++.exe" `
