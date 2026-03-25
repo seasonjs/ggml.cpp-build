@@ -84,8 +84,6 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/install" \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_HIP_COMPILER="$hip_clang" \
             -DGGML_BUILD_ALL_PLATFORM_BACKENDS=ON \
             -DGGML_ENABLE_VULKAN=ON \
@@ -171,8 +169,6 @@ jobs:
             -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
             -DCMAKE_INSTALL_RPATH="@loader_path" \
             -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/install" \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DBUILD_SHARED_LIBS=ON \
             -DGGML_BACKEND_DL=ON \
             -DGGML_NATIVE=OFF \
@@ -457,7 +453,7 @@ jobs:
 
       - name: Cache ROCm installation
         id: cache-rocm
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: C:\Program Files\AMD\ROCm
           key: rocm-${{ env.WINDOWS_HIPSDK_INSTALLER_VERSION }}-${{ runner.os }}
