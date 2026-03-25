@@ -52,6 +52,7 @@ jobs:
       - name: Configure CMake
         run: |
           cmake -S . -B build/base -G Ninja \
+            -DCMAKE_INSTALL_RPATH='$ORIGIN' \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/install/base" \
             -DBUILD_SHARED_LIBS=ON \
@@ -132,6 +133,7 @@ jobs:
           fi
           echo "Using HIP compiler: $hip_clang"
           cmake -S . -B build/rocm -G Ninja \
+            -DCMAKE_INSTALL_RPATH='$ORIGIN' \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/install/rocm" \
             -DCMAKE_HIP_COMPILER="$hip_clang" \
