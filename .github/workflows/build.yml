@@ -68,6 +68,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.21
+        with:
+          key: linux-x86_64
+          evict-old-files: 10d
+
       - name: Configure CMake
         run: |
           hip_clang="$(hipconfig -l)/clang"
@@ -78,6 +84,8 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/install" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_HIP_COMPILER="$hip_clang" \
             -DGGML_BUILD_ALL_PLATFORM_BACKENDS=ON \
             -DGGML_ENABLE_VULKAN=ON \
@@ -112,6 +120,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.21
+        with:
+          key: macos-arm64
+          evict-old-files: 10d
 
       - name: Validate macOS arm64 builder
         run: |
@@ -157,6 +171,8 @@ jobs:
             -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
             -DCMAKE_INSTALL_RPATH="@loader_path" \
             -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/install" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DBUILD_SHARED_LIBS=ON \
             -DGGML_BACKEND_DL=ON \
             -DGGML_NATIVE=OFF \
@@ -199,6 +215,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.21
+        with:
+          key: windows-x86_64-base
+          variant: ccache
+          evict-old-files: 10d
 
       - name: Validate Windows x86_64 runner
         shell: pwsh
@@ -284,6 +307,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.21
+        with:
+          key: windows-x86_64-cuda
+          variant: ccache
+          evict-old-files: 10d
 
       - name: Validate Windows x86_64 runner
         shell: pwsh
@@ -378,6 +408,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.21
+        with:
+          key: windows-x86_64-hip-${{ env.WINDOWS_HIPSDK_INSTALLER_VERSION }}
+          variant: ccache
+          evict-old-files: 10d
 
       - name: Validate Windows x86_64 runner
         shell: pwsh
