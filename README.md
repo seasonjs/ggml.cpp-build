@@ -66,13 +66,14 @@ else()
 endif()
 
 add_executable(main_app main.cpp)
-target_include_directories(main_app PRIVATE "${GGML_INCLUDE_DIR}")
 target_link_libraries(main_app PRIVATE ggml::ggml)
 
 ggml_copy_runtime_binaries(main_app
     ROOT_DIR "${GGML_PACKAGE_ROOT}"
 )
 ```
+
+The imported targets now propagate the installed `include/` directory, so linking `ggml::ggml` is enough to make `#include <ggml.h>` work.
 
 `ggml_copy_runtime_binaries(...)` matters because with `BUILD_SHARED_LIBS=ON` and `GGML_BACKEND_DL=ON`, the executable needs the runtime files from `bin/` beside it so `ggml_backend_load_all()` can load the backend plugins.
 

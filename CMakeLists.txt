@@ -9,6 +9,44 @@ function(ggml_default_cache name type value doc)
     endif()
 endfunction()
 
+function(ggml_patch_generated_config ggml_binary_dir)
+    set(_ggml_config_file "${ggml_binary_dir}/ggml-config.cmake")
+    if (NOT EXISTS "${_ggml_config_file}")
+        message(WARNING "Skipping ggml-config.cmake fixup because ${_ggml_config_file} does not exist.")
+        return()
+    endif()
+
+    file(READ "${_ggml_config_file}" _ggml_config_contents)
+    set(_ggml_patched_contents "${_ggml_config_contents}")
+
+    string(REPLACE
+        [=[set_target_properties(ggml::ggml
+        PROPERTIES
+            IMPORTED_LOCATION "${GGML_LIBRARY}")]=]
+        [=[set_target_properties(ggml::ggml
+        PROPERTIES
+            IMPORTED_LOCATION "${GGML_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${GGML_INCLUDE_DIR}")]=]
+        _ggml_patched_contents
+        "${_ggml_patched_contents}")
+
+    string(REPLACE
+        [=[set_target_properties(ggml::ggml-base
+        PROPERTIES
+            IMPORTED_LOCATION "${GGML_BASE_LIBRARY}")]=]
+        [=[set_target_properties(ggml::ggml-base
+        PROPERTIES
+            IMPORTED_LOCATION "${GGML_BASE_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${GGML_INCLUDE_DIR}")]=]
+        _ggml_patched_contents
+        "${_ggml_patched_contents}")
+
+    if (NOT _ggml_patched_contents STREQUAL _ggml_config_contents)
+        file(WRITE "${_ggml_config_file}" "${_ggml_patched_contents}")
+        message(STATUS "Patched exported ggml CMake package: ${_ggml_config_file}")
+    endif()
+endfunction()
+
 set(GGML_UPSTREAM_TAG "v0.9.8" CACHE STRING "ggml tag to fetch when no local source tree is available")
 set(
     GGML_SOURCE_DIR
@@ -59,6 +97,7 @@ message(STATUS "  GGML_BLAS_VENDOR                = ${GGML_BLAS_VENDOR}")
 
 if (EXISTS "${_ggml_local_source_dir}/CMakeLists.txt")
     message(STATUS "Using local ggml source tree: ${_ggml_local_source_dir}")
+    set(_ggml_binary_dir "${CMAKE_BINARY_DIR}/ggml")
     add_subdirectory("${_ggml_local_source_dir}" "${CMAKE_BINARY_DIR}/ggml")
 else()
     message(STATUS "Fetching ggml ${GGML_UPSTREAM_TAG} from GitHub")
@@ -69,4 +108,7 @@ else()
         GIT_SHALLOW    TRUE
     )
     FetchContent_MakeAvailable(ggml)
+    FetchContent_GetProperties(ggml BINARY_DIR _ggml_binary_dir)
 endif()
+
+ggml_patch_generated_config("${_ggml_binary_dir}")

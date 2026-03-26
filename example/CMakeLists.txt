@@ -26,7 +26,6 @@ endif()
 
 add_executable(main_app main.cpp)
 
-target_include_directories(main_app PRIVATE "${GGML_INCLUDE_DIR}")
 target_link_libraries(main_app PRIVATE ggml::ggml)
 
 ggml_copy_runtime_binaries(main_app

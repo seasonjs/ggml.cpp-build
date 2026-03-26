@@ -69,6 +69,13 @@ jobs:
       - name: Install
         run: cmake --install build/base --config Release --prefix install/base
 
+      - name: Validate exported CMake package
+        run: |
+          config_file="install/base/lib/cmake/ggml/ggml-config.cmake"
+          test -f "$config_file"
+          count="$(grep -c 'INTERFACE_INCLUDE_DIRECTORIES "${GGML_INCLUDE_DIR}"' "$config_file" || true)"
+          test "$count" -ge 2
+
       - name: Stage artifact
         run: |
           stage="artifact/linux-base"
@@ -283,6 +290,13 @@ jobs:
       - name: Install
         run: cmake --install build --config Release --prefix install
 
+      - name: Validate exported CMake package
+        run: |
+          config_file="install/lib/cmake/ggml/ggml-config.cmake"
+          test -f "$config_file"
+          count="$(grep -c 'INTERFACE_INCLUDE_DIRECTORIES "${GGML_INCLUDE_DIR}"' "$config_file" || true)"
+          test "$count" -ge 2
+
       - name: Package
         run: |
           stage="artifact/ggml-macos-arm64"
@@ -364,6 +378,20 @@ jobs:
       - name: Install
         shell: pwsh
         run: cmake --install build/base --config Release --prefix install/base
+
+      - name: Validate exported CMake package
+        shell: pwsh
+        run: |
+          $configFile = "install/base/lib/cmake/ggml/ggml-config.cmake"
+          if (-not (Test-Path $configFile)) {
+            Write-Error "Missing exported package config: $configFile"
+            exit 1
+          }
+          $count = (Select-String -Path $configFile -Pattern 'INTERFACE_INCLUDE_DIRECTORIES "\$\{GGML_INCLUDE_DIR\}"' -AllMatches).Matches.Count
+          if ($count -lt 2) {
+            Write-Error "Expected ggml::ggml and ggml::ggml-base to export INTERFACE_INCLUDE_DIRECTORIES"
+            exit 1
+          }
 
       - name: Stage artifact
         shell: pwsh

@@ -48,6 +48,30 @@ function(_ggml_locate_package_root out_root_dir search_root)
     set(${out_root_dir} "${_ggml_package_root}" PARENT_SCOPE)
 endfunction()
 
+function(_ggml_ensure_target_include_dir target_name include_dir)
+    if (NOT TARGET "${target_name}")
+        return()
+    endif()
+
+    get_property(_ggml_has_include_dirs TARGET "${target_name}" PROPERTY INTERFACE_INCLUDE_DIRECTORIES SET)
+    if (_ggml_has_include_dirs)
+        get_target_property(_ggml_include_dirs "${target_name}" INTERFACE_INCLUDE_DIRECTORIES)
+    else()
+        set(_ggml_include_dirs "")
+    endif()
+
+    if (_ggml_include_dirs)
+        list(FIND _ggml_include_dirs "${include_dir}" _ggml_include_index)
+    else()
+        set(_ggml_include_index -1)
+    endif()
+
+    if (_ggml_include_index EQUAL -1)
+        set_property(TARGET "${target_name}" APPEND PROPERTY
+            INTERFACE_INCLUDE_DIRECTORIES "${include_dir}")
+    endif()
+endfunction()
+
 function(ggml_import_prebuilt)
     set(options)
     set(one_value_args
@@ -161,6 +185,9 @@ function(ggml_import_prebuilt)
     find_package(ggml CONFIG REQUIRED
         PATHS "${_ggml_package_root}"
         NO_DEFAULT_PATH)
+
+    _ggml_ensure_target_include_dir(ggml::ggml "${_ggml_package_root}/include")
+    _ggml_ensure_target_include_dir(ggml::ggml-base "${_ggml_package_root}/include")
 
     set(GGML_INCLUDE_DIR "${_ggml_package_root}/include" PARENT_SCOPE)
     set(GGML_LIB_DIR "${_ggml_package_root}/lib" PARENT_SCOPE)
