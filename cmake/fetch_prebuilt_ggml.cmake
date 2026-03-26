@@ -31,16 +31,40 @@ function(_ggml_locate_package_root out_root_dir search_root)
         return()
     endif()
 
-    file(GLOB_RECURSE _ggml_config_candidates
-        LIST_DIRECTORIES false
-        "${search_root}/ggml-config.cmake")
-
     set(_ggml_package_root "")
+    set(_ggml_search_roots "${search_root}")
 
-    foreach(_ggml_config IN LISTS _ggml_config_candidates)
-        if (_ggml_config MATCHES [[[/\\]lib[/\\]cmake[/\\]ggml[/\\]ggml-config\.cmake$]])
-            get_filename_component(_ggml_config_dir "${_ggml_config}" DIRECTORY)
-            get_filename_component(_ggml_package_root "${_ggml_config_dir}/../../.." ABSOLUTE)
+    # Some archives unpack into an extra top-level directory such as
+    # ggml-windows-x86_64/..., even when the archive file itself includes a tag.
+    file(GLOB _ggml_child_entries
+        LIST_DIRECTORIES true
+        RELATIVE "${search_root}"
+        "${search_root}/*")
+    set(_ggml_child_dirs "")
+    foreach(_ggml_child_entry IN LISTS _ggml_child_entries)
+        if (IS_DIRECTORY "${search_root}/${_ggml_child_entry}")
+            list(APPEND _ggml_child_dirs "${search_root}/${_ggml_child_entry}")
+        endif()
+    endforeach()
+    list(LENGTH _ggml_child_dirs _ggml_child_dir_count)
+    if (_ggml_child_dir_count EQUAL 1)
+        list(APPEND _ggml_search_roots ${_ggml_child_dirs})
+    endif()
+
+    foreach(_ggml_search_dir IN LISTS _ggml_search_roots)
+        file(GLOB_RECURSE _ggml_config_candidates
+            LIST_DIRECTORIES false
+            "${_ggml_search_dir}/ggml-config.cmake")
+
+        foreach(_ggml_config IN LISTS _ggml_config_candidates)
+            if (_ggml_config MATCHES [[[/\\]lib[/\\]cmake[/\\]ggml[/\\]ggml-config\.cmake$]])
+                get_filename_component(_ggml_config_dir "${_ggml_config}" DIRECTORY)
+                get_filename_component(_ggml_package_root "${_ggml_config_dir}/../../.." ABSOLUTE)
+                break()
+            endif()
+        endforeach()
+
+        if (_ggml_package_root)
             break()
         endif()
     endforeach()
@@ -48,28 +72,48 @@ function(_ggml_locate_package_root out_root_dir search_root)
     set(${out_root_dir} "${_ggml_package_root}" PARENT_SCOPE)
 endfunction()
 
-function(_ggml_ensure_target_include_dir target_name include_dir)
-    if (NOT TARGET "${target_name}")
-        return()
+function(_ggml_archive_stem out_stem archive_name)
+    get_filename_component(_ggml_archive_name "${archive_name}" NAME)
+    string(REGEX REPLACE "(\\.tar\\.gz|\\.zip)$" "" _ggml_archive_stem "${_ggml_archive_name}")
+    set(${out_stem} "${_ggml_archive_stem}" PARENT_SCOPE)
+endfunction()
+
+function(_ggml_download_archive download_url archive_path)
+    set(_ggml_temp_archive_path "${archive_path}.tmp")
+    file(REMOVE "${_ggml_temp_archive_path}")
+
+    message(STATUS "Downloading prebuilt ggml package from ${download_url}")
+    file(DOWNLOAD
+        "${download_url}"
+        "${_ggml_temp_archive_path}"
+        SHOW_PROGRESS
+        STATUS _ggml_download_status
+        LOG _ggml_download_log
+        TLS_VERIFY ON)
+
+    list(GET _ggml_download_status 0 _ggml_download_code)
+    list(GET _ggml_download_status 1 _ggml_download_message)
+    if (NOT _ggml_download_code EQUAL 0)
+        file(REMOVE "${_ggml_temp_archive_path}")
+        message(FATAL_ERROR
+            "Failed to download ${download_url}: ${_ggml_download_message}\n${_ggml_download_log}")
     endif()
 
-    get_property(_ggml_has_include_dirs TARGET "${target_name}" PROPERTY INTERFACE_INCLUDE_DIRECTORIES SET)
-    if (_ggml_has_include_dirs)
-        get_target_property(_ggml_include_dirs "${target_name}" INTERFACE_INCLUDE_DIRECTORIES)
-    else()
-        set(_ggml_include_dirs "")
+    if (NOT EXISTS "${_ggml_temp_archive_path}")
+        message(FATAL_ERROR
+            "Download completed but did not create ${_ggml_temp_archive_path}.")
     endif()
 
-    if (_ggml_include_dirs)
-        list(FIND _ggml_include_dirs "${include_dir}" _ggml_include_index)
-    else()
-        set(_ggml_include_index -1)
+    file(SIZE "${_ggml_temp_archive_path}" _ggml_downloaded_size)
+    if (_ggml_downloaded_size EQUAL 0)
+        file(REMOVE "${_ggml_temp_archive_path}")
+        message(FATAL_ERROR
+            "Downloaded ${download_url} but received an empty archive. "
+            "Check GGML_RELEASE_TAG/GGML_ASSET_NAME/GGML_DOWNLOAD_URL and retry.")
     endif()
 
-    if (_ggml_include_index EQUAL -1)
-        set_property(TARGET "${target_name}" APPEND PROPERTY
-            INTERFACE_INCLUDE_DIRECTORIES "${include_dir}")
-    endif()
+    file(REMOVE "${archive_path}")
+    file(RENAME "${_ggml_temp_archive_path}" "${archive_path}")
 endfunction()
 
 function(ggml_import_prebuilt)
@@ -89,11 +133,7 @@ function(ggml_import_prebuilt)
         message(FATAL_ERROR "ggml_import_prebuilt accepts RELEASE_TAG or VERSION, but not both.")
     endif()
 
-    if (NOT GGML_OUT_ROOT_DIR)
-        set(GGML_OUT_ROOT_DIR GGML_ROOT_DIR)
-    endif()
-
-    if (GGML_ROOT_DIR)
+    if (EXISTS "${GGML_ROOT_DIR}")
         get_filename_component(_ggml_input_root "${GGML_ROOT_DIR}" ABSOLUTE)
         _ggml_locate_package_root(_ggml_package_root "${_ggml_input_root}")
 
@@ -103,12 +143,6 @@ function(ggml_import_prebuilt)
         endif()
     else()
         _ggml_prebuilt_platform(_ggml_platform _ggml_archive_ext)
-
-        if (GGML_ASSET_NAME)
-            set(_ggml_asset_name "${GGML_ASSET_NAME}")
-        else()
-            set(_ggml_asset_name "ggml-${_ggml_platform}${_ggml_archive_ext}")
-        endif()
 
         if (GGML_DOWNLOAD_URL)
             set(_ggml_download_url "${GGML_DOWNLOAD_URL}")
@@ -128,6 +162,20 @@ function(ggml_import_prebuilt)
             endif()
 
             string(REGEX REPLACE "/$" "" _ggml_release_base_url "${GGML_RELEASE_BASE_URL}")
+        endif()
+
+        if (GGML_ASSET_NAME)
+            set(_ggml_asset_name "${GGML_ASSET_NAME}")
+        elseif (GGML_DOWNLOAD_URL)
+            string(REGEX REPLACE "[?#].*$" "" _ggml_download_url_path "${_ggml_download_url}")
+            get_filename_component(_ggml_asset_name "${_ggml_download_url_path}" NAME)
+        elseif (DEFINED _ggml_release_tag)
+            set(_ggml_asset_name "ggml-${_ggml_release_tag}-${_ggml_platform}${_ggml_archive_ext}")
+        else()
+            set(_ggml_asset_name "ggml-${_ggml_platform}${_ggml_archive_ext}")
+        endif()
+
+        if (NOT GGML_DOWNLOAD_URL)
             set(_ggml_download_url "${_ggml_release_base_url}/${_ggml_release_tag}/${_ggml_asset_name}")
         endif()
 
@@ -138,56 +186,92 @@ function(ggml_import_prebuilt)
         endif()
 
         set(_ggml_archive_dir "${_ggml_cache_dir}/archives")
-        set(_ggml_extract_dir "${_ggml_cache_dir}/packages/${_ggml_asset_name}")
         set(_ggml_archive_path "${_ggml_archive_dir}/${_ggml_asset_name}")
+        _ggml_archive_stem(_ggml_extract_dir_name "${_ggml_asset_name}")
+        set(_ggml_extract_dir "${_ggml_cache_dir}/packages/${_ggml_extract_dir_name}")
 
         file(MAKE_DIRECTORY "${_ggml_archive_dir}")
 
-        if (NOT EXISTS "${_ggml_archive_path}")
-            message(STATUS "Downloading prebuilt ggml package from ${_ggml_download_url}")
-            file(DOWNLOAD
-                "${_ggml_download_url}"
-                "${_ggml_archive_path}"
-                SHOW_PROGRESS
-                STATUS _ggml_download_status
-                LOG _ggml_download_log
-                TLS_VERIFY ON)
-
-            list(GET _ggml_download_status 0 _ggml_download_code)
-            list(GET _ggml_download_status 1 _ggml_download_message)
-            if (NOT _ggml_download_code EQUAL 0)
-                message(FATAL_ERROR
-                    "Failed to download ${_ggml_download_url}: ${_ggml_download_message}\n${_ggml_download_log}")
+        set(_ggml_use_cached_archive FALSE)
+        if (EXISTS "${_ggml_archive_path}")
+            file(SIZE "${_ggml_archive_path}" _ggml_archive_size)
+            if (_ggml_archive_size GREATER 0)
+                set(_ggml_use_cached_archive TRUE)
+                message(STATUS "Using cached prebuilt ggml archive: ${_ggml_archive_path}")
+            else()
+                message(STATUS "Removing empty cached prebuilt ggml archive: ${_ggml_archive_path}")
+                file(REMOVE "${_ggml_archive_path}")
             endif()
-        else()
-            message(STATUS "Using cached prebuilt ggml archive: ${_ggml_archive_path}")
+        endif()
+
+        if (NOT _ggml_use_cached_archive)
+            _ggml_download_archive("${_ggml_download_url}" "${_ggml_archive_path}")
         endif()
 
         _ggml_locate_package_root(_ggml_package_root "${_ggml_extract_dir}")
         if (NOT _ggml_package_root)
-            file(REMOVE_RECURSE "${_ggml_extract_dir}")
-            file(MAKE_DIRECTORY "${_ggml_extract_dir}")
+            foreach(_ggml_extract_attempt RANGE 1 2)
+                file(REMOVE_RECURSE "${_ggml_extract_dir}")
+                file(MAKE_DIRECTORY "${_ggml_extract_dir}")
 
-            message(STATUS "Extracting prebuilt ggml package to ${_ggml_extract_dir}")
-            file(ARCHIVE_EXTRACT
-                INPUT "${_ggml_archive_path}"
-                DESTINATION "${_ggml_extract_dir}")
+                if (_ggml_extract_attempt EQUAL 1)
+                    message(STATUS "Extracting prebuilt ggml package to ${_ggml_extract_dir}")
+                else()
+                    message(STATUS "Retrying ggml extraction with a refreshed archive")
+                endif()
 
-            _ggml_locate_package_root(_ggml_package_root "${_ggml_extract_dir}")
+                file(ARCHIVE_EXTRACT
+                    INPUT "${_ggml_archive_path}"
+                    DESTINATION "${_ggml_extract_dir}")
+
+                _ggml_locate_package_root(_ggml_package_root "${_ggml_extract_dir}")
+                if (_ggml_package_root)
+                    break()
+                endif()
+
+                if (_ggml_extract_attempt EQUAL 1)
+                    message(STATUS
+                        "Archive ${_ggml_archive_path} did not produce a usable ggml package layout; refreshing cache.")
+                    file(REMOVE "${_ggml_archive_path}")
+                    _ggml_download_archive("${_ggml_download_url}" "${_ggml_archive_path}")
+                endif()
+            endforeach()
         endif()
 
         if (NOT _ggml_package_root)
             message(FATAL_ERROR
-                "Extracted archive ${_ggml_archive_path} does not contain lib/cmake/ggml/ggml-config.cmake.")
+                "Archive ${_ggml_archive_path} did not produce lib/cmake/ggml/ggml-config.cmake under "
+                "${_ggml_extract_dir}. Check GGML_RELEASE_TAG/GGML_ASSET_NAME/GGML_DOWNLOAD_URL.")
         endif()
+    endif()
+
+    if (NOT GGML_OUT_ROOT_DIR)
+        set(GGML_OUT_ROOT_DIR GGML_ROOT_DIR)
     endif()
 
     find_package(ggml CONFIG REQUIRED
         PATHS "${_ggml_package_root}"
         NO_DEFAULT_PATH)
 
-    _ggml_ensure_target_include_dir(ggml::ggml "${_ggml_package_root}/include")
-    _ggml_ensure_target_include_dir(ggml::ggml-base "${_ggml_package_root}/include")
+    # Some prebuilt ggml packages do not export public include directories on
+    # ggml::ggml / ggml::ggml-base when backend loading is enabled. Patch the
+    # imported targets locally so downstream targets (for example llama) can
+    # resolve #include "ggml.h" correctly.
+    if (TARGET ggml::ggml)
+        get_target_property(_ggml_interface_includes ggml::ggml INTERFACE_INCLUDE_DIRECTORIES)
+        if (NOT _ggml_interface_includes)
+            set_target_properties(ggml::ggml PROPERTIES
+                INTERFACE_INCLUDE_DIRECTORIES "${_ggml_package_root}/include")
+        endif()
+    endif()
+
+    if (TARGET ggml::ggml-base)
+        get_target_property(_ggml_base_interface_includes ggml::ggml-base INTERFACE_INCLUDE_DIRECTORIES)
+        if (NOT _ggml_base_interface_includes)
+            set_target_properties(ggml::ggml-base PROPERTIES
+                INTERFACE_INCLUDE_DIRECTORIES "${_ggml_package_root}/include")
+        endif()
+    endif()
 
     set(GGML_INCLUDE_DIR "${_ggml_package_root}/include" PARENT_SCOPE)
     set(GGML_LIB_DIR "${_ggml_package_root}/lib" PARENT_SCOPE)
