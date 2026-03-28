@@ -37,9 +37,38 @@ function(ggml_patch_generated_config ggml_binary_dir)
         [=[set_target_properties(ggml::ggml-base
         PROPERTIES
             IMPORTED_LOCATION "${GGML_BASE_LIBRARY}"
-            INTERFACE_INCLUDE_DIRECTORIES "${GGML_INCLUDE_DIR}")]=]
+            INTERFACE_INCLUDE_DIRECTORIES "${GGML_INCLUDE_DIR}"
+            INTERFACE_COMPILE_DEFINITIONS "GGML_BACKEND_DL")]=]
         _ggml_patched_contents
         "${_ggml_patched_contents}")
+
+    string(REPLACE
+        [=[set_target_properties(ggml::ggml-base
+        PROPERTIES
+            IMPORTED_LOCATION "${GGML_BASE_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${GGML_INCLUDE_DIR}")]=]
+        [=[set_target_properties(ggml::ggml-base
+        PROPERTIES
+            IMPORTED_LOCATION "${GGML_BASE_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${GGML_INCLUDE_DIR}"
+            INTERFACE_COMPILE_DEFINITIONS "GGML_BACKEND_DL")]=]
+        _ggml_patched_contents
+        "${_ggml_patched_contents}")
+
+    if (NOT GGML_BACKEND_DL)
+        string(REPLACE
+            [=[set_target_properties(ggml::ggml-base
+        PROPERTIES
+            IMPORTED_LOCATION "${GGML_BASE_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${GGML_INCLUDE_DIR}"
+            INTERFACE_COMPILE_DEFINITIONS "GGML_BACKEND_DL")]=]
+            [=[set_target_properties(ggml::ggml-base
+        PROPERTIES
+            IMPORTED_LOCATION "${GGML_BASE_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${GGML_INCLUDE_DIR}")]=]
+            _ggml_patched_contents
+            "${_ggml_patched_contents}")
+    endif()
 
     if (NOT _ggml_patched_contents STREQUAL _ggml_config_contents)
         file(WRITE "${_ggml_config_file}" "${_ggml_patched_contents}")
