@@ -522,7 +522,14 @@ jobs:
           $stage = "artifact/windows-cuda"
           New-Item -ItemType Directory -Force -Path "$stage/bin" | Out-Null
           Copy-Item -Path "build/cuda/bin/Release/ggml-cuda.dll" -Destination "$stage/bin/" -Force
-          Copy-Item -Path "build/cuda/bin/Release/ggml-cuda.pdb" -Destination "$stage/bin/" -Force -ErrorAction SilentlyContinue
+          # Search recursively for PDB; Ninja Multi-Config may write it to a subdirectory other than bin/Release
+          $cudaPdb = Get-ChildItem -Path "build/cuda" -Filter "ggml-cuda.pdb" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($cudaPdb) {
+            Copy-Item -Path $cudaPdb.FullName -Destination "$stage/bin/" -Force
+            Write-Host "Copied PDB from: $($cudaPdb.FullName)"
+          } else {
+            Write-Warning "ggml-cuda.pdb not found in build/cuda – PDB may not have been generated"
+          }
           Copy-Item -Path "$runtimeDir/*" -Destination "$stage/bin/" -Force -ErrorAction SilentlyContinue
 
       - name: Upload artifact
@@ -615,8 +622,7 @@ jobs:
             -DGGML_HIP_ROCWMMA_FATTN=ON `
             -DCMAKE_C_COMPILER="$env:HIP_PATH\bin\clang.exe" `
             -DCMAKE_CXX_COMPILER="$env:HIP_PATH\bin\clang++.exe" `
-            "-DCMAKE_CXX_FLAGS=-I$($rocwmmaInclude.Replace('\', '/'))/ -Wno-ignored-attributes -Wno-nested-anon-types -g -gcodeview" `
-            "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,/DEBUG" `
+            "-DCMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG -I$($rocwmmaInclude.Replace('\', '/'))/ -Wno-ignored-attributes -Wno-nested-anon-types -g -gcodeview"
           
           cmake --build build/hip --target ggml-hip -j $env:NUMBER_OF_PROCESSORS
 
@@ -680,14 +686,47 @@ jobs:
           Copy-Item -Path "parts/cuda/bin/*" -Destination "$stage/bin/" -Force -ErrorAction SilentlyContinue
           Copy-Item -Path "parts/hip/bin/*" -Destination "$stage/bin/" -Recurse -Force -ErrorAction SilentlyContinue
 
+          # Strip PDB files from the SDK zip – they are shipped in the separate PDB artifact
+          Get-ChildItem -Path $stage -Filter "*.pdb" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force
+
           Compress-Archive -Path $stage -DestinationPath "artifact/ggml-windows-x86_64.zip" -Force
 
-      - name: Upload artifact
+      - name: Package Windows PDB artifact
+        shell: pwsh
+        run: |
+          $pdbStage = "artifact/ggml-windows-x86_64-pdb"
+          New-Item -ItemType Directory -Force -Path $pdbStage | Out-Null
+
+          # Collect PDB files produced by each Windows build job
+          Get-ChildItem -Path "parts/base" -Filter "*.pdb" -Recurse -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item $_.FullName $pdbStage -Force }
+          Get-ChildItem -Path "parts/cuda" -Filter "*.pdb" -Recurse -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item $_.FullName $pdbStage -Force }
+          Get-ChildItem -Path "parts/hip" -Filter "*.pdb" -Recurse -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item $_.FullName $pdbStage -Force }
+
+          $collected = @(Get-ChildItem -Path $pdbStage -File -ErrorAction SilentlyContinue)
+          if ($collected.Count -eq 0) {
+            Write-Warning "No PDB files found – PDB artifact will be empty"
+          } else {
+            Write-Host "Collected $($collected.Count) PDB file(s): $(($collected | Select-Object -ExpandProperty Name) -join ', ')"
+          }
+
+          Compress-Archive -Path "$pdbStage\*" -DestinationPath "artifact/ggml-windows-x86_64-pdb.zip" -Force
+
+      - name: Upload SDK artifact
         uses: actions/upload-artifact@v4
         with:
           name: ggml-windows-x86_64
           path: artifact/ggml-windows-x86_64.zip
           if-no-files-found: error
+
+      - name: Upload PDB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ggml-windows-x86_64-pdb
+          path: artifact/ggml-windows-x86_64-pdb.zip
+          if-no-files-found: warn
 
   release:
     needs:
@@ -720,6 +759,10 @@ jobs:
           cp "artifacts/ggml-linux-x86_64/ggml-linux-x86_64.tar.gz" "release/ggml-${tag_name}-linux-x86_64.tar.gz"
           cp "artifacts/ggml-macos-arm64/ggml-macos-arm64.tar.gz" "release/ggml-${tag_name}-macos-arm64.tar.gz"
           cp "artifacts/ggml-windows-x86_64/ggml-windows-x86_64.zip" "release/ggml-${tag_name}-windows-x86_64.zip"
+          # PDB artifact: ship separately so the main SDK zip stays unchanged
+          if [ -f "artifacts/ggml-windows-x86_64-pdb/ggml-windows-x86_64-pdb.zip" ]; then
+            cp "artifacts/ggml-windows-x86_64-pdb/ggml-windows-x86_64-pdb.zip" "release/ggml-${tag_name}-windows-x86_64-pdb.zip"
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
