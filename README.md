@@ -36,7 +36,7 @@ ggml-<platform>/
   lib/cmake/ggml/ggml-config.cmake
 ```
 
-The Linux and Windows assemble jobs also publish a sibling `*.manifests.json` file next to the archive in CI and Releases. It describes the platform, archive format, included backend overlays, and the exact file list so third-party tooling can identify the package before merging it into a larger SDK.
+The Linux and Windows assemble jobs also publish a sibling `*.manifests.json` file next to the archive in CI and Releases. It describes the platform, archive format, included backend overlays, the `component -> files` ownership mapping, and the exact file list so third-party tooling can identify the package before merging it into a larger SDK.
 
 ## Consume The SDK
 

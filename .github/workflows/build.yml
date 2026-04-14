@@ -233,7 +233,10 @@ jobs:
             --backend "vulkan" \
             --backend "rocm" \
             --source-part "ggml-linux-x86_64-base" \
-            --source-part "ggml-linux-x86_64-rocm"
+            --source-part "ggml-linux-x86_64-rocm" \
+            --component-map "base|ggml-linux-x86_64-base|parts/base|." \
+            --component-map "rocm|ggml-linux-x86_64-rocm|parts/rocm/lib|lib" \
+            --component-map "rocm|ggml-linux-x86_64-rocm|parts/rocm/bin|bin"
           cp "$stage/manifests.json" "artifact/ggml-linux-x86_64.manifests.json"
 
           tar czf artifact/ggml-linux-x86_64.tar.gz -C artifact ggml-linux-x86_64
@@ -752,7 +755,10 @@ jobs:
             --backend "hip" `
             --source-part "ggml-windows-x86_64-base" `
             --source-part "ggml-windows-x86_64-cuda" `
-            --source-part "ggml-windows-x86_64-hip"
+            --source-part "ggml-windows-x86_64-hip" `
+            --component-map "base|ggml-windows-x86_64-base|parts/base|." `
+            --component-map "cuda|ggml-windows-x86_64-cuda|parts/cuda/bin|bin" `
+            --component-map "hip|ggml-windows-x86_64-hip|parts/hip/bin|bin"
           Copy-Item -Path "$stage/manifests.json" -Destination "artifact/ggml-windows-x86_64.manifests.json" -Force
 
           Compress-Archive -Path $stage -DestinationPath "artifact/ggml-windows-x86_64.zip" -Force

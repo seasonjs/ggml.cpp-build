@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-const repeatableFlags = new Set(["component", "backend", "source-part"]);
+const repeatableFlags = new Set(["component", "backend", "source-part", "component-map"]);
 
 function parseArgs(argv) {
   const values = new Map();
@@ -65,6 +65,7 @@ function parseArgs(argv) {
     components: toList(values.get("component")),
     backends: toList(values.get("backend")),
     sourceArtifacts: toList(values.get("source-part")),
+    componentMaps: parseComponentMaps(toList(values.get("component-map"))),
   };
 }
 
@@ -77,6 +78,38 @@ function toList(value) {
 
 function normalizeRelativePath(value) {
   return value.split(path.sep).join("/");
+}
+
+function normalizeTargetPrefix(value) {
+  if (!value || value === "." || value === "/") {
+    return "";
+  }
+  return normalizeRelativePath(value).replace(/^\/+|\/+$/g, "");
+}
+
+function parseComponentMaps(entries) {
+  return entries.map((entry) => {
+    const parts = entry.split("|");
+    if (parts.length < 3 || parts.length > 4) {
+      throw new Error(
+        `Invalid --component-map value "${entry}". Expected "component|sourceArtifact|sourceRoot|targetPrefix".`,
+      );
+    }
+
+    const [componentId, sourceArtifact, sourceRoot, targetPrefix = "."] = parts;
+    if (!componentId || !sourceArtifact || !sourceRoot) {
+      throw new Error(
+        `Invalid --component-map value "${entry}". Component, sourceArtifact, and sourceRoot are required.`,
+      );
+    }
+
+    return {
+      componentId,
+      sourceArtifact,
+      sourceRoot,
+      targetPrefix: normalizeTargetPrefix(targetPrefix),
+    };
+  });
 }
 
 function inferRole(relativePath, manifestFileName) {
@@ -164,6 +197,8 @@ async function collectEntries(stageDir, manifestFileName, outputPath) {
           size: null,
           sha256: null,
           linkTarget: normalizeRelativePath(linkTarget),
+          component: null,
+          componentSourceArtifact: null,
         });
         continue;
       }
@@ -179,12 +214,115 @@ async function collectEntries(stageDir, manifestFileName, outputPath) {
         role,
         size: stats.size,
         sha256: await sha256File(absoluteChildPath),
+        component: null,
+        componentSourceArtifact: null,
       });
     }
   }
 
   await walk(resolvedStageDir);
   return entries;
+}
+
+function createComponentRecord(componentId) {
+  return {
+    id: componentId,
+    sourceArtifacts: new Set(),
+    sourceMappings: [],
+  };
+}
+
+async function walkSourceFiles(sourceRoot, onEntry) {
+  const resolvedRoot = path.resolve(sourceRoot);
+  const stats = await fs.stat(resolvedRoot).catch(() => null);
+  if (!stats?.isDirectory()) {
+    return false;
+  }
+
+  async function walk(currentDir) {
+    const children = await fs.readdir(currentDir, { withFileTypes: true });
+    children.sort((left, right) => left.name.localeCompare(right.name));
+
+    for (const child of children) {
+      const absoluteChildPath = path.join(currentDir, child.name);
+      const relativeChildPath = normalizeRelativePath(path.relative(resolvedRoot, absoluteChildPath));
+
+      if (child.isDirectory()) {
+        await walk(absoluteChildPath);
+        continue;
+      }
+
+      await onEntry({
+        absolutePath: absoluteChildPath,
+        relativePath: relativeChildPath,
+        dirent: child,
+      });
+    }
+  }
+
+  await walk(resolvedRoot);
+  return true;
+}
+
+async function applyComponentMappings(stageEntries, componentMaps) {
+  const stageEntryByPath = new Map(stageEntries.map((entry) => [entry.path, entry]));
+  const componentById = new Map();
+
+  for (const mapping of componentMaps) {
+    let component = componentById.get(mapping.componentId);
+    if (!component) {
+      component = createComponentRecord(mapping.componentId);
+      componentById.set(mapping.componentId, component);
+    }
+
+    component.sourceArtifacts.add(mapping.sourceArtifact);
+
+    const sourceRootResolved = path.resolve(mapping.sourceRoot);
+    const mappingRecord = {
+      sourceArtifact: mapping.sourceArtifact,
+      sourceRoot: normalizeRelativePath(path.relative(process.cwd(), sourceRootResolved)),
+      targetPrefix: mapping.targetPrefix,
+      exists: false,
+    };
+    component.sourceMappings.push(mappingRecord);
+
+    const exists = await walkSourceFiles(sourceRootResolved, async ({ absolutePath, relativePath, dirent }) => {
+      const stagePath = normalizeRelativePath(
+        mapping.targetPrefix ? path.join(mapping.targetPrefix, relativePath) : relativePath,
+      );
+      const stageEntry = stageEntryByPath.get(stagePath);
+      if (!stageEntry) {
+        return;
+      }
+
+      if (dirent.isSymbolicLink()) {
+        if (stageEntry.type !== "symlink") {
+          return;
+        }
+
+        const sourceLinkTarget = normalizeRelativePath(await fs.readlink(absolutePath));
+        if (stageEntry.linkTarget !== sourceLinkTarget) {
+          return;
+        }
+      } else {
+        if (stageEntry.type !== "file") {
+          return;
+        }
+
+        const sourceHash = await sha256File(absolutePath);
+        if (stageEntry.sha256 !== sourceHash) {
+          return;
+        }
+      }
+
+      stageEntry.component = mapping.componentId;
+      stageEntry.componentSourceArtifact = mapping.sourceArtifact;
+    });
+
+    mappingRecord.exists = exists;
+  }
+
+  return componentById;
 }
 
 async function main() {
@@ -201,13 +339,25 @@ async function main() {
   await fs.mkdir(outputDir, { recursive: true });
 
   const files = await collectEntries(stageDir, options.manifestFileName, outputPath);
+  const componentById = await applyComponentMappings(files, options.componentMaps);
+
+  for (const componentId of options.components) {
+    if (!componentById.has(componentId)) {
+      componentById.set(componentId, createComponentRecord(componentId));
+    }
+  }
+
   const roles = {};
   let totalBytes = 0;
   let fileCount = 0;
   let symlinkCount = 0;
+  let mappedEntryCount = 0;
 
   for (const entry of files) {
     roles[entry.role] = (roles[entry.role] ?? 0) + 1;
+    if (entry.component) {
+      mappedEntryCount += 1;
+    }
     if (entry.type === "file") {
       fileCount += 1;
       totalBytes += entry.size ?? 0;
@@ -216,8 +366,25 @@ async function main() {
     }
   }
 
+  const components = [...componentById.values()]
+    .map((component) => {
+      const componentFiles = files
+        .filter((entry) => entry.component === component.id)
+        .map((entry) => entry.path)
+        .sort((left, right) => left.localeCompare(right));
+
+      return {
+        id: component.id,
+        sourceArtifacts: [...component.sourceArtifacts].sort((left, right) => left.localeCompare(right)),
+        sourceMappings: component.sourceMappings,
+        fileCount: componentFiles.length,
+        files: componentFiles,
+      };
+    })
+    .sort((left, right) => left.id.localeCompare(right.id));
+
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     artifact: {
       name: options.artifactName,
@@ -239,7 +406,10 @@ async function main() {
       symlinkCount,
       totalBytes,
       roles,
+      mappedEntryCount,
+      unmappedEntryCount: files.length - mappedEntryCount,
     },
+    components,
     files,
   };
 
