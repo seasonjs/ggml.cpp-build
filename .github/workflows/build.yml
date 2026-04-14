@@ -186,6 +186,14 @@ jobs:
       - build-linux-x86_64-rocm
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.21
+
       - name: Download base artifact
         uses: actions/download-artifact@v4
         with:
@@ -208,13 +216,35 @@ jobs:
           cp -a parts/rocm/lib/. "$stage/lib/" 2>/dev/null || true
           cp -a parts/rocm/bin/. "$stage/bin/" 2>/dev/null || true
 
+          bun run generate-manifest \
+            --stage "$stage" \
+            --output "$stage/manifests.json" \
+            --artifact-name "ggml-linux-x86_64" \
+            --package-type "sdk-overlay" \
+            --merge-target "ggml-sdk" \
+            --os "linux" \
+            --arch "x86_64" \
+            --archive-format "tar.gz" \
+            --archive-file "ggml-linux-x86_64.tar.gz" \
+            --manifest-file "manifests.json" \
+            --component "base" \
+            --component "rocm" \
+            --backend "cpu" \
+            --backend "vulkan" \
+            --backend "rocm" \
+            --source-part "ggml-linux-x86_64-base" \
+            --source-part "ggml-linux-x86_64-rocm"
+          cp "$stage/manifests.json" "artifact/ggml-linux-x86_64.manifests.json"
+
           tar czf artifact/ggml-linux-x86_64.tar.gz -C artifact ggml-linux-x86_64
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ggml-linux-x86_64
-          path: artifact/ggml-linux-x86_64.tar.gz
+          path: |
+            artifact/ggml-linux-x86_64.tar.gz
+            artifact/ggml-linux-x86_64.manifests.json
           if-no-files-found: error
 
   build-macos-arm64:
@@ -663,6 +693,14 @@ jobs:
       - build-windows-x86_64-hip
     runs-on: windows-2022
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.21
+
       - name: Download base artifact
         uses: actions/download-artifact@v4
         with:
@@ -694,6 +732,29 @@ jobs:
           # Strip PDB files from the SDK zip – they are shipped in the separate PDB artifact
           Get-ChildItem -Path $stage -Filter "*.pdb" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force
 
+          bun run generate-manifest `
+            --stage $stage `
+            --output "$stage/manifests.json" `
+            --artifact-name "ggml-windows-x86_64" `
+            --package-type "sdk-overlay" `
+            --merge-target "ggml-sdk" `
+            --os "windows" `
+            --arch "x86_64" `
+            --archive-format "zip" `
+            --archive-file "ggml-windows-x86_64.zip" `
+            --manifest-file "manifests.json" `
+            --component "base" `
+            --component "cuda" `
+            --component "hip" `
+            --backend "cpu" `
+            --backend "vulkan" `
+            --backend "cuda" `
+            --backend "hip" `
+            --source-part "ggml-windows-x86_64-base" `
+            --source-part "ggml-windows-x86_64-cuda" `
+            --source-part "ggml-windows-x86_64-hip"
+          Copy-Item -Path "$stage/manifests.json" -Destination "artifact/ggml-windows-x86_64.manifests.json" -Force
+
           Compress-Archive -Path $stage -DestinationPath "artifact/ggml-windows-x86_64.zip" -Force
 
       - name: Package Windows PDB artifact
@@ -723,7 +784,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ggml-windows-x86_64
-          path: artifact/ggml-windows-x86_64.zip
+          path: |
+            artifact/ggml-windows-x86_64.zip
+            artifact/ggml-windows-x86_64.manifests.json
           if-no-files-found: error
 
       - name: Upload PDB artifact
@@ -762,8 +825,10 @@ jobs:
           tag_name="${{ steps.tag.outputs.name }}"
           mkdir -p release
           cp "artifacts/ggml-linux-x86_64/ggml-linux-x86_64.tar.gz" "release/ggml-${tag_name}-linux-x86_64.tar.gz"
+          cp "artifacts/ggml-linux-x86_64/ggml-linux-x86_64.manifests.json" "release/ggml-${tag_name}-linux-x86_64.manifests.json"
           cp "artifacts/ggml-macos-arm64/ggml-macos-arm64.tar.gz" "release/ggml-${tag_name}-macos-arm64.tar.gz"
           cp "artifacts/ggml-windows-x86_64/ggml-windows-x86_64.zip" "release/ggml-${tag_name}-windows-x86_64.zip"
+          cp "artifacts/ggml-windows-x86_64/ggml-windows-x86_64.manifests.json" "release/ggml-${tag_name}-windows-x86_64.manifests.json"
           # PDB artifact: ship separately so the main SDK zip stays unchanged
           if [ -f "artifacts/ggml-windows-x86_64-pdb/ggml-windows-x86_64-pdb.zip" ]; then
             cp "artifacts/ggml-windows-x86_64-pdb/ggml-windows-x86_64-pdb.zip" "release/ggml-${tag_name}-windows-x86_64-pdb.zip"

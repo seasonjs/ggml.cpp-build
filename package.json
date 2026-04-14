@@ -1,0 +1,8 @@
+{
+  "name": "ggml.cpp-build",
+  "private": true,
+  "packageManager": "bun@1.2.21",
+  "scripts": {
+    "generate-manifest": "bun scripts/generate-manifest.mjs"
+  }
+}
