@@ -76,7 +76,7 @@ function(ggml_patch_generated_config ggml_binary_dir)
     endif()
 endfunction()
 
-set(GGML_UPSTREAM_TAG "v0.14.0" CACHE STRING "ggml tag to fetch when no local source tree is available")
+set(GGML_UPSTREAM_TAG "v0.17.0" CACHE STRING "ggml tag to fetch when no local source tree is available")
 set(
     GGML_SOURCE_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/build/_deps/ggml-src"
